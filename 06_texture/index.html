@@ -1,0 +1,150 @@
+<!--
+ * @Author: wy
+ * @Date: 2023-12-06 15:42:05
+ * @LastEditors: wy
+ * @LastEditTime: 2023-12-08 16:09:33
+ * @FilePath: /笔记/webgl-eg/06_texture/index.html
+ * @Description: 
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <canvas id="canvas" width="500" height="500"></canvas>
+
+    <script type="x-shader/x-vertex" id="vertex">
+      attribute vec2 a_position;
+      attribute vec2 a_texture; // 纹理坐标
+
+      uniform vec2 screenSize;
+      varying vec2 v_texture;
+      void main() {
+        float x = a_position.x * 2.0 / screenSize.x - 1.0;
+        float y = 1.0 - a_position.y * 2.0 / screenSize.y;
+        gl_Position = vec4(x, y, 0, 1);
+        gl_PointSize = 10.0;
+        v_texture = a_texture;
+      }
+    </script>
+    <script type="x-shader/x-fragment" id="fragment">
+      precision mediump float; // 设置默认精度，不然会报错
+      uniform sampler2D u_sampler;  // 纹理图像源数据
+      varying vec2 v_texture;
+      void main() {
+        gl_FragColor = texture2D(u_sampler, v_texture); // 用纹理的颜色来配置片元着色器的颜色
+      }
+    </script>
+    <script>
+      const ctx = document.getElementById('canvas');
+      const gl = ctx.getContext('webgl');
+      if (!gl) {
+        alert('浏览器不支持webgl');
+      }
+
+      // 开始创建着色器
+      function createShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        // 添加着色器资源
+        gl.shaderSource(shader, source);
+        // 编译着着色器
+        gl.compileShader(shader);
+        // 判断编译是否成功
+        const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+        if (success) {
+          return shader;
+        }
+        // 打印失败原因
+        console.log(gl.getShaderInfoLog(shader));
+      }
+
+      const vertexStr = document.getElementById('vertex').innerText;
+      const fragmentStr = document.getElementById('fragment').innerText;
+      const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexStr);
+      const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentStr);
+
+      // 创建连接着色器的程序
+      function createProgram(gl, vertexShader, fragmentShader) {
+        // 创建程序
+        const program = gl.createProgram();
+        // 把着色器放入程序
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        // 连接程序
+        gl.linkProgram(program);
+        return program;
+      }
+
+      const program = createProgram(gl, vertexShader, fragmentShader);
+      gl.useProgram(program);
+
+      // 清除画布
+      gl.clearColor(0, 0, 1, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      let a_position = gl.getAttribLocation(program, 'a_position');
+      let a_texture = gl.getAttribLocation(program, 'a_texture');
+      let u_sampler = gl.getUniformLocation(program, 'u_sampler'); // 获取纹理图像源
+      let screenSize = gl.getUniformLocation(program, 'screenSize');
+      gl.uniform2f(screenSize, ctx.width, ctx.height);
+      let positionBuffer = gl.createBuffer();
+      // 绑定缓冲区数据类型
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+      // 加载图片作为纹理
+      const img = new Image();
+      img.src = './1.png';
+      // 创建纹理对象
+      let texture = gl.createTexture();
+      img.onload = function () {
+        // 激活纹理单元
+        gl.activeTexture(gl.TEXTURE0);
+        // 绑定纹理单元
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        // 纹理图片的扩大，缩小，重复
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        // 纹理贴图
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          img
+        );
+        gl.uniform1i(u_sampler, 0);
+        draw();
+      };
+
+      function draw() {
+        // 数据放入缓冲区
+        gl.bufferData(
+          gl.ARRAY_BUFFER,
+          // 设置纹理的坐标，就是定点的坐标，对应纹理的总表
+          new Float32Array([
+            50, 50, 0, 0, 50, 100, 0, 1, 150, 100, 1, 1, 150, 100, 1, 1, 150,
+            50, 1, 0, 50, 50, 0, 0,
+          ]),
+          gl.STATIC_DRAW
+        ); // gl.STATIC_DRAW表示数据存储区的使用方法
+
+        gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 4 * 4, 0);
+        gl.vertexAttribPointer(a_texture, 2, gl.FLOAT, false, 4 * 4, 4 * 2);
+
+        gl.enableVertexAttribArray(a_position);
+        gl.enableVertexAttribArray(a_texture);
+
+        // 使用缓冲区绘制，但是1个矩形是由2个三角形组成的，需要6个点有些浪费，可以使用索引缓冲区优化
+        gl.drawArrays(gl.TRIANGLES, 0, 6); // 绘制矩形
+        // gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+      }
+    </script>
+  </body>
+</html>

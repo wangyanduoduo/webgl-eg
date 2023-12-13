@@ -1,0 +1,222 @@
+<!--
+ * @Author: wy
+ * @Date: 2023-12-12 11:05:06
+ * @LastEditors: wy
+ * @LastEditTime: 2023-12-13 11:04:31
+ * @FilePath: /笔记/webgl-eg/14_box_cylinder/index.html
+ * @Description: 
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>圆珠-加入视觉系统-旋转</title>
+  </head>
+  <body>
+    <canvas id="canvas" width="500" height="500"></canvas>
+    <script type="x-shader/x-vertex" id="vertex">
+      // 顶点着色器
+      attribute vec3 a_position;
+      attribute vec4 a_color;
+      uniform mat4 u_model;
+      varying vec4 v_color;
+      void main() {
+        gl_Position = u_model * vec4(a_position, 1);
+        v_color = a_color;
+      }
+    </script>
+    <script type="x-shader/x-fragment" id="fragment">
+      precision mediump float;
+      varying vec4 v_color;
+      void main() {
+        gl_FragColor = v_color;
+      }
+    </script>
+    <script src="../00_js/cuon-matrix.js"></script>
+    <script>
+      // 获取画布，创建webgl对象
+      const ctx = document.getElementById('canvas');
+      const gl = ctx.getContext('webgl');
+
+      // 创建着色器
+      function createShader(gl, type, shaderSource) {
+        const shader = gl.createShader(type);
+        // 添加着色器资源
+        gl.shaderSource(shader, shaderSource);
+        // 编译着色器
+        gl.compileShader(shader);
+        // 判断着色器是否成功
+        const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+        if (success) {
+          return shader;
+        }
+        // 失败打印信息
+        console.log('shader-fail-info', gl.getShaderInfoLog(shader));
+      }
+
+      // 创建着色器程序
+      function createProgram(gl, vertexShader, fragmentShader) {
+        const program = gl.createProgram();
+        // 附加着色器
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        // 连接着色器
+        gl.linkProgram(program);
+        // 判断着色器是否连接成功
+        const success = gl.getProgramParameter(program, gl.LINK_STATUS);
+        if (success) {
+          return program;
+        }
+        console.log('program-fail-info', gl.getProgramInfoLog(program));
+      }
+
+      // 获取着色器资源
+      const vertexSource = document.getElementById('vertex').innerText;
+      const fragmentSource = document.getElementById('fragment').innerText;
+      const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource);
+      const fragmentShader = createShader(
+        gl,
+        gl.FRAGMENT_SHADER,
+        fragmentSource
+      );
+      const program = createProgram(gl, vertexShader, fragmentShader);
+      console.log('program', program);
+      // 使用着色器程序
+      gl.useProgram(program);
+
+      // 获取顶点着色器中的变量
+      const a_position = gl.getAttribLocation(program, 'a_position');
+      const a_color = gl.getAttribLocation(program, 'a_color');
+      const u_model = gl.getUniformLocation(program, 'u_model');
+
+      // 创建顶点缓冲池
+      const positionBuffer = gl.createBuffer();
+      // 绑定缓冲池
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+      // 创建索引缓冲池
+      const indexBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
+      // 深度检测，可以在视觉上，在正方体没有旋转的时候，能不让后绘制的面的颜色，覆盖前绘制的面的颜色
+      gl.enable(gl.DEPTH_TEST);
+
+      // 开始绘制
+      function draw(positionArr, indexArr) {
+        // 设置顶点
+        gl.bufferData(
+          gl.ARRAY_BUFFER,
+          new Float32Array(positionArr),
+          gl.STATIC_DRAW
+        );
+
+        // 设置顶点索引
+        gl.bufferData(
+          gl.ELEMENT_ARRAY_BUFFER,
+          new Uint16Array(indexArr),
+          gl.STATIC_DRAW
+        );
+
+        // 顶点buffer设置完毕之后，把点的信息，放入顶点着色器中
+        gl.vertexAttribPointer(a_position, 3, gl.FLOAT, false, 4 * 6, 0);
+        gl.vertexAttribPointer(a_color, 3, gl.FLOAT, false, 4 * 6, 4 * 3);
+
+        // 数据放置之后好需要启用
+        gl.enableVertexAttribArray(a_position);
+        gl.enableVertexAttribArray(a_color);
+
+        // 绘制三角形
+
+        gl.drawElements(gl.TRIANGLES, indexArr.length, gl.UNSIGNED_SHORT, 0);
+      }
+
+      function rotate(positionArr, indexArr) {
+        // 创建一个单一矩阵
+        const viewMatrix = new Matrix4();
+        // 构建视觉坐标, 正射投影
+        viewMatrix.setOrtho(-1, 1, -1, 1, -100, 100);
+
+        // 构建模型坐标系
+        let modelMatrix = new Matrix4();
+        modelMatrix = modelMatrix.setRotate(110, 1, 1, 0);
+
+        modelMatrix = viewMatrix.multiply(modelMatrix);
+
+        gl.uniformMatrix4fv(u_model, false, modelMatrix.elements);
+        draw(positionArr, indexArr);
+      }
+
+      // draw();
+
+      // rotate();
+      /**
+       * topR 圆柱上半径
+       * bottomR 圆柱下半径
+       * height圆柱高
+       * horizontalCount 水平方向切割的圆数
+       * verticalCount 垂直方向切割的梯形数
+       * */
+      function createCylinder(
+        topR,
+        bottomR,
+        height,
+        horizontalCount,
+        verticalCount
+      ) {
+        let angle = (Math.PI * 2) / verticalCount; // 圆被切割的角度
+        let positions = []; // 顶点数组
+
+        for (let i = -1; i <= horizontalCount + 1; i++) {
+          let y = (1 / 2 - (i * 1) / horizontalCount) * height; // y轴坐标
+          let currentCircleR = topR + (i * (bottomR - topR)) / horizontalCount; // 当前圆的半径
+
+          if (i === -1) {
+            currentCircleR = 0;
+            y = height / 2;
+          } else if (i === horizontalCount + 1) {
+            currentCircleR = 0;
+            y = -height / 2;
+          }
+
+          // 圆上的信息
+          for (let j = 0; j <= verticalCount; j++) {
+            let x = currentCircleR * Math.cos(j * angle);
+            let z = currentCircleR * Math.sin(j * angle);
+
+            positions.push(
+              x,
+              y,
+              z,
+              Math.random(),
+              Math.random(),
+              Math.random()
+            );
+          }
+        }
+
+        let positionIndexs = []; // 顶点索引数组
+
+        for (let i = 0; i < horizontalCount + 2; i++) {
+          for (let j = 0; j < verticalCount; j++) {
+            var v0 = i * (verticalCount + 1) + j;
+            var v1 = i * (verticalCount + 1) + j + 1;
+            var v2 = (i + 1) * (verticalCount + 1) + j + 1;
+            var v3 = (i + 1) * (verticalCount + 1) + j;
+            positionIndexs.push(v0, v1, v2, v2, v3, v0);
+          }
+        }
+
+        return {
+          positions,
+          positionIndexs,
+        };
+      }
+
+      const cylinder = createCylinder(0, 1, 1, 10, 10);
+
+      console.log('===cylinder', cylinder);
+      rotate(cylinder.positions, cylinder.positionIndexs);
+    </script>
+  </body>
+</html>
